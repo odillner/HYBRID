@@ -1,73 +1,59 @@
 package com.hybrid.crypt
 
-import com.hybrid.utils.DataHelper
-import com.hybrid.utils.RunResult
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class AESGCM: Algorithm {
-    override val name = "AES-GCM"
-    val keySize = 256
-    val IVLength = 12
-    val tagLength = 16
 
-    private fun generateKeySpec(): SecretKeySpec {
-        val keyGenerator = KeyGenerator.getInstance("AES")
+class AESGCM(keySize: Int, private val IVSize: Int): Algorithm {
+    override val algorithm: String = "AES"
+    override val name = "AES-GCM"
+    override val configuration = "AES/GCM/NoPadding"
+
+    override val encryptCipher: Cipher = Cipher.getInstance(configuration)
+    override val decryptCipher: Cipher = Cipher.getInstance(configuration)
+    private val keyGenerator = KeyGenerator.getInstance(algorithm)
+
+    private lateinit var keySpec: SecretKeySpec
+    private lateinit var iv: ByteArray
+
+    init {
         keyGenerator.init(keySize)
 
-        return SecretKeySpec(keyGenerator.generateKey().encoded, "AES")
+        generateKey()
+        generateIV()
     }
 
-    private fun encrypt(data: ByteArray, paramSpec: GCMParameterSpec, keySpec: SecretKeySpec): ByteArray {
-        val encryptCipher = Cipher.getInstance("AES/GCM/NoPadding")
-        encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, paramSpec)
-
-        return encryptCipher.doFinal(data)
+    override fun generateKey() {
+        keySpec = SecretKeySpec(keyGenerator.generateKey().encoded, algorithm)
     }
 
-    private fun decrypt(data: ByteArray, paramSpec: GCMParameterSpec, keySpec: SecretKeySpec): ByteArray {
-        val decryptCipher = Cipher.getInstance("AES/GCM/NoPadding")
-        decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, paramSpec)
-
-        return decryptCipher.doFinal(data)
-    }
-
-    override fun performRun(data: Array<String>, numberOfRuns: Int): RunResult {
-        val keySpec = generateKeySpec()
+    private fun generateIV() {
         val random = SecureRandom()
 
-        val helper = DataHelper()
+        val iv = ByteArray(IVSize)
+        random.nextBytes(iv)
 
-        val res = RunResult(numberOfRuns)
-        val encodedData = helper.encode(data)
-        var decodedData = Array(data.size){""}
+        this.iv = iv
+    }
 
-        for (i in 0 until numberOfRuns) {
-            val iv = ByteArray(IVLength)
+    private fun getNextIV(): ByteArray {
+        iv[iv.size - 1] = iv[iv.size - 1].inc()
 
-            val paramSpec = Array(data.size){
-                random.nextBytes(iv)
-                GCMParameterSpec(tagLength * 8, iv)
-            }
+        return iv
+    }
 
-            var start = System.currentTimeMillis()
-            val encryptedData = Array(data.size) {encrypt(encodedData[it], paramSpec[it], keySpec)}
-            var end = System.currentTimeMillis()
-            res.encryptTimings[i] = end - start
+    override fun encrypt(data: ByteArray): ByteArray {
+        encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, GCMParameterSpec(128, getNextIV()))
 
-            start = System.currentTimeMillis()
-            val decryptedData = Array(data.size) {decrypt(encryptedData[it], paramSpec[it], keySpec)}
-            end = System.currentTimeMillis()
-            res.decryptTimings[i] = end - start
+        return iv + encryptCipher.doFinal(data)
+    }
 
-            decodedData = helper.decode(decryptedData)
-        }
+    override fun decrypt(data: ByteArray): ByteArray {
+        decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, GCMParameterSpec(128, data, 0, IVSize))
 
-        res.data = decodedData
-
-        return res
+        return decryptCipher.doFinal(data, IVSize, data.size - IVSize)
     }
 }

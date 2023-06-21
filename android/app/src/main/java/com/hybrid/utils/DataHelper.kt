@@ -4,9 +4,8 @@ import android.os.Build
 import android.os.StrictMode
 import com.github.kittinunf.fuel.Fuel
 import com.github.kittinunf.fuel.core.extensions.jsonBody
-import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.ceil
+import com.hybrid.crypt.*
 
 class DataHelper {
     fun encode(data: Array<String>) : Array<ByteArray> {
@@ -17,43 +16,48 @@ class DataHelper {
         return Array(data.size){String(data[it])}
     }
 
-    fun chunk(data: ByteArray, size: Int) : Array<ByteArray> {
-        val len = ceil(data.size.toDouble()/size).toInt()
-
-        return Array(len){data.copyOfRange(it * size,  if ((it+1) * size < data.size) (it+1) * size else data.size)}
-    }
-
-    fun dechunk(data: Array<ByteArray>) : ByteArray {
-        var dechunked = byteArrayOf()
-
-        for (element in data) {
-            dechunked += element
+    fun algorithmFromName(name: String): Algorithm {
+        when (name) {
+            "AES-CBC" -> return AESCBC(256, 16)
+            "AES-CTR" -> return AESCTR(256, 12)
+            "AES-GCM" -> return AESGCM(256, 12)
+            "BF-CBC" -> return BFCBC(256, 8)
+            "ECIES-SECP256K1" -> return ECIESSECP256K1()
+            "ECDSA-P521" -> return ECDSAP521()
+            "RSA-OAEP" -> return RSAOAEP(2048)
+            "RSA-PSS" -> return RSAPSS(2048)
         }
 
-        return dechunked
-    }
-
-    fun inputToDataSet(input: String) : Array<String> {
-        val split = input.split("}}},")
-
-        return Array(split.size){split[it] + "}}}"}
+        return AESCBC(256, 16)
     }
 
 
-    fun uploadResult(result: RunResult, algorithmName: String, dataSetSize: Int, apiURL: String) {
+
+    fun uploadResult(encryptRes: RunResult, decryptRes: RunResult, keyGenResult: RunResult, algorithmName: String, dataSetSize: Int, numberOfRuns: Int) {
+        StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().permitAll().build())
         val body = JSONObject()
 
-        body.put("platform", "NATIVE")
+        body.put("platform", "HYBRID")
         body.put("deviceBrand", Build.BRAND.uppercase())
         body.put("deviceModel", Build.MODEL.uppercase())
         body.put("deviceOS", "ANDROID" + Build.VERSION.RELEASE)
+
         body.put("algorithm", algorithmName)
         body.put("dataSetSize", dataSetSize)
-        body.put("encryptTimings", JSONArray(result.encryptTimings))
-        body.put("decryptTimings", JSONArray(result.decryptTimings))
+        body.put("numberOfRuns", numberOfRuns)
 
-        StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().build())
+        body.put("avgKeyGenTime", keyGenResult.avgTime)
+        body.put("avgKeyGenMem", keyGenResult.avgMem)
+        body.put("avgKeyGenCPU", keyGenResult.avgCPU)
 
-        Fuel.post(apiURL).jsonBody(body.toString()).response()
+        body.put("avgEncryptTime", encryptRes.avgTime)
+        body.put("avgEncryptMem", encryptRes.avgMem)
+        body.put("avgEncryptCPU", encryptRes.avgCPU)
+
+        body.put("avgDecryptTime", decryptRes.avgTime)
+        body.put("avgDecryptMem", decryptRes.avgMem)
+        body.put("avgDecryptCPU", decryptRes.avgCPU)
+
+        Fuel.post("https://data-gatherer.onrender.com/api/data").jsonBody(body.toString()).response()
     }
 }
