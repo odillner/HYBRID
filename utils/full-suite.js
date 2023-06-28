@@ -1,3 +1,5 @@
+/* Module for interracting with native benchmarking code */
+
 import {API_URL} from "@env"
 
 import {NativeModules} from 'react-native';
